@@ -1,0 +1,164 @@
+{
+  "summary": {
+    "blockers": 0,
+    "major": 15,
+    "minor": 7,
+    "info": 1
+  },
+  "stats": {
+    "pad_overlaps": 0,
+    "drill_issues": 4,
+    "hv_lv_violations": 0,
+    "min_hv_lv_dist_mm": Infinity,
+    "edge_clearance_issues": 6,
+    "decoupling_issues": 2,
+    "unrouted_nets": 0,
+    "fiducials": 3,
+    "mounting_holes": 4,
+    "trace_width_issues": 5,
+    "zones_filled": 2,
+    "zones_total": 2,
+    "power_coverage_issues": 0
+  },
+  "fab_ready": false,
+  "issues": [
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "annular_ring",
+      "message": "J1.S1: annular -0.150mm < min 0.075mm",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "annular_ring",
+      "message": "J1.S1: annular -0.150mm < min 0.075mm",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "annular_ring",
+      "message": "J1.S1: annular -0.150mm < min 0.075mm",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "annular_ring",
+      "message": "J1.S1: annular -0.150mm < min 0.075mm",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "edge_clearance",
+      "message": "U5: extends within 0.5mm of board edge",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "edge_clearance",
+      "message": "K1: extends within 0.5mm of board edge",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "edge_clearance",
+      "message": "J4: extends within 0.5mm of board edge",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "edge_clearance",
+      "message": "U1: extends within 0.5mm of board edge",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "edge_clearance",
+      "message": "R11: extends within 0.5mm of board edge",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "edge_clearance",
+      "message": "J3: extends within 0.5mm of board edge",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "decoupling_distance",
+      "message": "C1 is 11.4mm from nearest power pad of U1 (max 5.0mm)",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "decoupling_distance",
+      "message": "C2 is 15.1mm from nearest power pad of U1 (max 5.0mm)",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "trace_width",
+      "message": "Power net '+5V_USB_RAW': trace 0.25mm < min power 0.4mm",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "trace_width",
+      "message": "Power net '+5V_USB_RAW': trace 0.25mm < min power 0.4mm",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe0 MAJOR",
+      "category": "trace_width",
+      "message": "Power net '+5V_USB_RAW': trace 0.25mm < min power 0.4mm",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udd35 INFO",
+      "category": "trace_width",
+      "message": "... and 2 more trace width issues",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe1 MINOR",
+      "category": "power_coverage",
+      "message": "U_RTC not found on board",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe1 MINOR",
+      "category": "power_coverage",
+      "message": "U_EEPROM not found on board",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe1 MINOR",
+      "category": "power_coverage",
+      "message": "U_ADC not found on board",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe1 MINOR",
+      "category": "power_coverage",
+      "message": "U_IOEXP1 not found on board",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe1 MINOR",
+      "category": "power_coverage",
+      "message": "U_USBUART not found on board",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe1 MINOR",
+      "category": "power_coverage",
+      "message": "U_LDO not found on board",
+      "location": null
+    },
+    {
+      "severity": "\ud83d\udfe1 MINOR",
+      "category": "power_coverage",
+      "message": "U_BUCK not found on board",
+      "location": null
+    }
+  ]
+}
