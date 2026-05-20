@@ -60,6 +60,14 @@ EcoSynTech_PaymentBox_V8.2_complete/
         └── sd_logger/                  NDJSON log + rotation
 ```
 
+│
+└── backend/                          ← GAS V9.5 backend endpoints (mới 5/2026)
+    └── gas_v9_5/
+        ├── README.md                  Hướng dẫn deploy vào GAS Editor
+        ├── TEST_REPORT.md             ★ 42/42 unit tests pass
+        ├── gas_v9_5_paymentbox_endpoints.js  ★ Code copy vào GAS
+        └── test_gas_endpoints.js      Node.js local tests
+
 ★ = milestone V8.2 production-ready
 
 ---
