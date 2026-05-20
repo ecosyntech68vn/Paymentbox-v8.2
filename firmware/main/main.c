@@ -12,6 +12,7 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_mac.h"
+#include "esp_sleep.h"
 #include "nvs_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -65,7 +66,16 @@ void app_main(void) {
     ESP_LOGI(TAG, "==========================================");
 
     // ===== Core systems =====
-    nvs_flash_init();
+    esp_err_t nvs_err = nvs_flash_init();
+    if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGW(TAG, "NVS corrupted, erasing...");
+        nvs_flash_erase();
+        nvs_err = nvs_flash_init();
+    }
+    if (nvs_err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS init failed (%d), cannot continue", nvs_err);
+        abort();
+    }
     event_bus_init();
     compute_device_id();
 
@@ -93,14 +103,22 @@ void app_main(void) {
     // WiFi sau cùng (sẽ publish CONNECTED khi sẵn sàng)
     wifi_manager_start();
 
-    // Đợi WiFi
+    // Đợi WiFi event-driven (không busy-poll)
+    QueueHandle_t sys_q = event_bus_subscribe("main");
+    bool wifi_ok = false;
     int wait_ms = 0;
-    while (!wifi_manager_is_connected() && wait_ms < WIFI_CONNECT_TIMEOUT_MS) {
-        vTaskDelay(pdMS_TO_TICKS(500));
+    while (!wifi_ok && wait_ms < WIFI_CONNECT_TIMEOUT_MS) {
+        pbox_event_msg_t ev;
+        if (xQueueReceive(sys_q, &ev, pdMS_TO_TICKS(500)) == pdTRUE) {
+            if (ev.type == EV_WIFI_CONNECTED) wifi_ok = true;
+        }
         wait_ms += 500;
+        if (wait_ms % 5000 == 0) {
+            ESP_LOGI(TAG, "Waiting for WiFi... (%dms elapsed)", wait_ms);
+        }
     }
 
-    if (wifi_manager_is_connected()) {
+    if (wifi_ok) {
         ESP_LOGI(TAG, "WiFi ready, spawning pollers");
 
         gas_poller_set_device_id(s_device_id);
@@ -119,9 +137,19 @@ void app_main(void) {
         ESP_LOGW(TAG, "WiFi không sẵn sàng — running offline mode (LCD/LED/buzzer only)");
     }
 
-    // Main task chỉ idle. Mọi việc trong các task con.
+    // Main task: check battery critical + shutdown nếu cần
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(60000));
+        pbox_event_msg_t ev;
+        while (xQueueReceive(sys_q, &ev, 0) == pdTRUE) {
+            if (ev.type == EV_BAT_CRITICAL && !battery_usb_present()) {
+                ESP_LOGE(TAG, "Battery critical + no USB, entering deep sleep in 10s");
+                vTaskDelay(pdMS_TO_TICKS(10000));
+                ESP_LOGI(TAG, "Deep sleep now. Heap free: %zu bytes", esp_get_free_heap_size());
+                esp_sleep_enable_timer_wakeup(1800 * 1000000LL);  // wake after 30min
+                esp_deep_sleep_start();
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(5000));
         ESP_LOGI(TAG, "Heap free: %zu bytes", esp_get_free_heap_size());
     }
 }

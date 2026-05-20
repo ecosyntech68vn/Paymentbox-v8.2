@@ -21,6 +21,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <errno.h>
 
 static const char *TAG = "sd_log";
 static bool s_mounted = false;
@@ -76,10 +77,15 @@ static void rotate_if_needed(void) {
     for (int i = SD_LOG_ROTATE_KEEP - 1; i >= 1; i--) {
         snprintf(src, sizeof(src), "%s.%d", SD_LOG_PATH, i);
         snprintf(dst, sizeof(dst), "%s.%d", SD_LOG_PATH, i+1);
-        rename(src, dst);  // ignore error
+        if (rename(src, dst) != 0 && errno != ENOENT) {
+            ESP_LOGW(TAG, "Rotate rename %s → %s failed: errno=%d", src, dst, errno);
+        }
     }
     snprintf(dst, sizeof(dst), "%s.1", SD_LOG_PATH);
-    rename(SD_LOG_PATH, dst);
+    if (rename(SD_LOG_PATH, dst) != 0) {
+        ESP_LOGE(TAG, "Log rotate failed: errno=%d", errno);
+        return;
+    }
     ESP_LOGI(TAG, "Log rotated");
 }
 

@@ -28,6 +28,7 @@ typedef enum {
 
 static buzzer_pattern_t s_pattern = BZ_OFF;
 static QueueHandle_t s_pattern_q = NULL;
+static int s_critical_cycles = 0;
 
 static void buzzer_gpio_init(void) {
     gpio_config_t cfg = {
@@ -102,8 +103,16 @@ static void buzzer_task(void *arg) {
 
         // Critical pattern lặp
         if (s_pattern == BZ_CRITICAL) {
-            play_pattern(BZ_CRITICAL);
+            s_critical_cycles++;
+            if (s_critical_cycles >= 1800) {  // ~30 phút (1800 × 1s)
+                ESP_LOGW(TAG, "Critical buzzer timeout after 30min, auto-silence");
+                s_pattern = BZ_OFF;
+                s_critical_cycles = 0;
+            } else {
+                play_pattern(BZ_CRITICAL);
+            }
         } else {
+            s_critical_cycles = 0;
             vTaskDelay(pdMS_TO_TICKS(50));
         }
     }

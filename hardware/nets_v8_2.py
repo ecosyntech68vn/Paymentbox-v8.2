@@ -393,11 +393,12 @@ NETS["PROG"] = [("U6", "2"), ("R13", "1")]
 del NETS["PROG_R"]
 del NETS["PROG_GND_END"]
 
-# Add C13_boost (boost compensation) — goes between FB and GND? Actually let's drop it (MT3608 doesn't need it)
-# Just merge to GND/floating; actually MT3608 does need feedforward, put it across SW node
-# For simplicity, put C13_boost between SW and FB (small feedforward cap)
-NETS["BOOST_FB"].append(("C13_boost", "1"))
-NETS["BOOST_SW"].append(("C13_boost", "2"))
+# C13 (C13_BOOST) — feedforward capacitor from SW to FB on MT3608
+# Giá trị: 10nF (0.01µF) ceramic 0805 — giúp ổn định boost và giảm ripple
+# NOTICE: 100nF là quá lớn cho feedforward, có thể gây startup failure
+# Reference: MT3608 datasheet recommends 1-10nF for feedforward compensation
+NETS["BOOST_FB"].append(("C13", "1"))
+NETS["BOOST_SW"].append(("C13", "2"))
 
 
 if __name__ == "__main__":

@@ -44,8 +44,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t base,
                 s_sta_connected = false;
                 event_bus_publish(EV_WIFI_DISCONNECTED, NULL);
                 s_retry_count++;
-                ESP_LOGW(TAG, "STA disconnected, retry #%d", s_retry_count);
-                vTaskDelay(pdMS_TO_TICKS(WIFI_RECONNECT_DELAY_MS));
+                // Exponential backoff: 5s, 10s, 20s, 40s, 80s, max 160s
+                int backoff = WIFI_RECONNECT_DELAY_MS * (1 << (s_retry_count > 5 ? 5 : s_retry_count - 1));
+                if (backoff > 160000) backoff = 160000;
+                ESP_LOGW(TAG, "STA disconnected, retry #%d (backoff %dms)", s_retry_count, backoff);
+                vTaskDelay(pdMS_TO_TICKS(backoff));
                 esp_wifi_connect();
                 break;
             case WIFI_EVENT_AP_START:
@@ -86,6 +89,7 @@ static void start_sta(const char *ssid, const char *psk) {
 
     esp_wifi_set_mode(WIFI_MODE_STA);
     esp_wifi_set_config(WIFI_IF_STA, &cfg);
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     esp_wifi_start();
     ESP_LOGI(TAG, "STA mode → connect to %s", ssid);
 }
@@ -95,24 +99,31 @@ static void start_ap_fallback(void) {
     strncpy((char*)cfg.ap.ssid, WIFI_AP_FALLBACK_NAME, sizeof(cfg.ap.ssid));
     cfg.ap.ssid_len = strlen(WIFI_AP_FALLBACK_NAME);
     cfg.ap.channel = 1;
-    cfg.ap.authmode = WIFI_AUTH_OPEN;  // open AP — config UI will set password later
+    cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
     cfg.ap.max_connection = 4;
+
+    // Đọc password từ NVS nếu có, fallback về default
+    nvs_handle_t h;
+    if (nvs_open("storage", NVS_READONLY, &h) == ESP_OK) {
+        size_t len = sizeof(cfg.ap.password);
+        if (nvs_get_str(h, "wifi.ap_psk", (char*)cfg.ap.password, &len) != ESP_OK) {
+            strncpy((char*)cfg.ap.password, WIFI_AP_PASSWORD, sizeof(cfg.ap.password));
+        }
+        nvs_close(h);
+    } else {
+        strncpy((char*)cfg.ap.password, WIFI_AP_PASSWORD, sizeof(cfg.ap.password));
+    }
 
     esp_wifi_set_mode(WIFI_MODE_AP);
     esp_wifi_set_config(WIFI_IF_AP, &cfg);
     esp_wifi_start();
+    ESP_LOGI(TAG, "AP started: %s (WPA2 PSK)", WIFI_AP_FALLBACK_NAME);
 }
 
 void wifi_manager_start(void) {
-    // NVS init (gọi 1 lần ở main, an toàn để gọi lại)
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        nvs_flash_erase();
-        nvs_flash_init();
-    }
+    // NOTE: nvs_flash_init(), esp_netif_init(), esp_event_loop_create_default()
+    // đã được gọi trong main.c — không gọi lại.
 
-    esp_netif_init();
-    esp_event_loop_create_default();
     esp_netif_create_default_wifi_sta();
     esp_netif_create_default_wifi_ap();
 

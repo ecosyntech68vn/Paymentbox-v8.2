@@ -60,6 +60,7 @@
 #define WIFI_DEFAULT_SSID      "EcoSynTech-Setup"
 #define WIFI_DEFAULT_PSK       ""              // empty = open AP
 #define WIFI_AP_FALLBACK_NAME  "PaymentBox-Setup"
+#define WIFI_AP_PASSWORD       "ecosyntech"    // WPA2 PSK cho AP mode; đọc từ NVS key "wifi.ap_psk" nếu có
 #define WIFI_CONNECT_TIMEOUT_MS 30000
 #define WIFI_RECONNECT_DELAY_MS 5000
 
@@ -68,7 +69,7 @@
 #define PHONE_DEFAULT_IP       "192.168.1.50"  // override via NVS
 #define PHONE_HEALTH_URL       "http://%s:8765/api/v1/health"
 #define PHONE_RECENT_URL       "http://%s:8765/api/v1/transactions/recent"
-#define PHONE_POLL_INTERVAL_MS 30000           // 30s
+#define PHONE_POLL_INTERVAL_MS 60000           // 60s (1 phút quét 1 lần)
 #define PHONE_TIMEOUT_MS       5000
 
 // GAS backend (V9.5)

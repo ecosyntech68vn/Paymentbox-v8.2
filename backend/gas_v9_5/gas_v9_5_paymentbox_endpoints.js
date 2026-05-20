@@ -15,9 +15,14 @@
  * 4. Deploy → New deployment → Web app → Execute as: Me, Access: Anyone
  *
  * SCHEMA SHEET "Firmware" (registry firmware OTA):
- * | A: device_pattern | B: hw    | C: new_version | D: url      | E: sha256 | F: min_battery_v | G: release_notes |
- * |-------------------|----------|----------------|-------------|-----------|------------------|------------------|
- * | ESG-PB-*          | V8.2     | 1.1.0          | https://... | abc123... | 3.5              | Fix LED flicker  |
+ * | A: device_pattern | B: hw    | C: new_version | D: url      | E: sha256 | F: min_battery_v | G: rollout_percent | H: release_notes |
+ * |-------------------|----------|----------------|-------------|-----------|------------------|--------------------|------------------|
+ * | ESG-PB-*          | V8.2     | 1.1.0          | https://... | abc123... | 3.5              | 100                | Fix LED flicker  |
+ * | ESG-PB-*          | V8.2     | 1.2.0          | https://... | def456... | 3.5              | 10                 | Canary 10%       |
+ *
+ * rollout_percent: optional, 0-100. Device được hash (djb2 % 100) để xác định
+ *   rollout group. Chỉ device có hash < rollout_percent mới nhận firmware này.
+ *   Bỏ trống hoặc 100 = deploy toàn bộ. 0 = disable.
  *
  * device_pattern hỗ trợ wildcard '*':
  *   "ESG-PB-*"  → match tất cả PaymentBox
@@ -99,7 +104,7 @@ function handleOtaCheck_(e) {
       return _jsonResponse({ update_available: false });
     }
 
-    const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues();
+    const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues();
     const match = _findFirmwareMatch_(rows, deviceId, hw, currentVer);
 
     if (!match) {
@@ -158,11 +163,39 @@ function _matchesPattern_(deviceId, pattern) {
 }
 
 /**
+ * Tính độ ưu tiên của pattern: exact pattern > trailing wildcard > "*"
+ * @return {number} higher = more specific
+ */
+function _patternPriority_(pattern) {
+  if (!pattern || pattern === '*') return 0;
+  if (pattern.endsWith('*')) return pattern.length;  // longer prefix = more specific
+  return 100;  // exact match
+}
+
+/**
+ * Hash deterministic device_id → 0..99 (djb2 algorithm), dùng cho rollout.
+ * @param {string} deviceId
+ * @return {number} 0-99
+ */
+function _deviceRolloutHash_(deviceId) {
+  var hash = 5381;
+  var s = String(deviceId);
+  for (var i = 0; i < s.length; i++) {
+    hash = ((hash << 5) + hash) + s.charCodeAt(i);
+    hash = hash & hash;  // convert to 32-bit int
+  }
+  return Math.abs(hash) % 100;
+}
+
+/**
  * Tìm row firmware match device + hw + có version mới hơn current.
+ * Ưu tiên pattern cụ thể nhất (exact match > prefix wildcard > "*")
  * @param {Array<Array>} rows — values từ getRange().getValues() (đã skip header)
  * @return {object|null}
  */
 function _findFirmwareMatch_(rows, deviceId, hw, currentVer) {
+  let best = null;
+  let bestPriority = -1;
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     const pattern    = String(r[0] || '').trim();
@@ -171,7 +204,8 @@ function _findFirmwareMatch_(rows, deviceId, hw, currentVer) {
     const url        = String(r[3] || '').trim();
     const sha256     = String(r[4] || '').trim();
     const minBat     = parseFloat(r[5]);
-    const notes      = String(r[6] || '').trim();
+    const rolloutPct = parseInt(r[6], 10);
+    const notes      = String(r[7] || '').trim();
 
     if (!pattern || !rowHw || !newVersion || !url) continue;
     if (!PB_VERSION_REGEX.test(newVersion))         continue;
@@ -179,15 +213,24 @@ function _findFirmwareMatch_(rows, deviceId, hw, currentVer) {
     if (!_matchesPattern_(deviceId, pattern))        continue;
     if (_versionCmp_(newVersion, currentVer) <= 0)   continue;
 
-    return {
-      new_version: newVersion,
-      url: url,
-      sha256: sha256,
-      min_battery_v: isNaN(minBat) ? 3.5 : minBat,
-      release_notes: notes,
-    };
+    // Rollout check — nếu rollout_percent set và < 100, chỉ deploy cho 1 phần device
+    const rp = isNaN(rolloutPct) ? 100 : rolloutPct;
+    if (rp < 100 && _deviceRolloutHash_(deviceId) >= rp) continue;
+
+    const priority = _patternPriority_(pattern);
+    if (priority > bestPriority) {
+      bestPriority = priority;
+      best = {
+        new_version: newVersion,
+        url: url,
+        sha256: sha256,
+        min_battery_v: isNaN(minBat) ? 3.5 : minBat,
+        rollout_percent: rp,
+        release_notes: notes,
+      };
+    }
   }
-  return null;
+  return best;
 }
 
 /**
@@ -208,7 +251,8 @@ function _findLastHeartbeatMs_(sheet, deviceId) {
       const ts = _parseTimestamp_(data[i][1]);
       if (ts > latest) latest = ts;
       // Sheet thường append theo thứ tự, row cuối là mới nhất → break early
-      if (latest > 0) break;
+      // Chỉ break nếu timestamp hợp lệ (>0)
+      if (ts > 0) break;
     }
   }
   return latest;
@@ -251,6 +295,8 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     _versionCmp_,
     _matchesPattern_,
+    _patternPriority_,
+    _deviceRolloutHash_,
     _findFirmwareMatch_,
     _findLastHeartbeatMs_,
     _parseTimestamp_,

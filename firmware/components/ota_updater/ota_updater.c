@@ -24,19 +24,24 @@
  * - Crash > 3 lần boot → bootloader auto rollback
  */
 #include "ota_updater.h"
+#include "json_utils.h"
 #include "event_bus.h"
 #include "paymentbox_config.h"
+#include "battery_monitor.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_https_ota.h"
 #include "esp_http_client.h"
+#include "esp_crt_bundle.h"
 #include "esp_app_format.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "nvs.h"
+#include "mbedtls/sha256.h"
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 
 static const char *TAG = "ota";
@@ -45,55 +50,6 @@ static const char *TAG = "ota";
 static QueueHandle_t s_trigger_q = NULL;
 
 // =============== Helpers ===============
-
-/**
- * Đọc 1 trường JSON đơn giản: "key":value (string hoặc bool hoặc number).
- * Không phải full JSON parser — chỉ scan substring.
- * Tránh phụ thuộc cJSON cho lib nhẹ.
- */
-static bool json_get_string(const char *json, const char *key, char *out, size_t out_len) {
-    char search[64];
-    snprintf(search, sizeof(search), "\"%s\"", key);
-    const char *p = strstr(json, search);
-    if (!p) return false;
-    p = strchr(p + strlen(search), ':');
-    if (!p) return false;
-    p++;
-    while (*p == ' ' || *p == '\t') p++;
-    if (*p != '"') return false;
-    p++;  // skip opening quote
-    const char *end = strchr(p, '"');
-    if (!end) return false;
-    size_t len = end - p;
-    if (len >= out_len) len = out_len - 1;
-    memcpy(out, p, len);
-    out[len] = '\0';
-    return true;
-}
-
-static bool json_get_bool(const char *json, const char *key) {
-    char search[64];
-    snprintf(search, sizeof(search), "\"%s\"", key);
-    const char *p = strstr(json, search);
-    if (!p) return false;
-    p = strchr(p + strlen(search), ':');
-    if (!p) return false;
-    p++;
-    while (*p == ' ' || *p == '\t') p++;
-    return (strncmp(p, "true", 4) == 0);
-}
-
-static float json_get_float(const char *json, const char *key, float def) {
-    char search[64];
-    snprintf(search, sizeof(search), "\"%s\"", key);
-    const char *p = strstr(json, search);
-    if (!p) return def;
-    p = strchr(p + strlen(search), ':');
-    if (!p) return def;
-    p++;
-    while (*p == ' ' || *p == '\t') p++;
-    return strtof(p, NULL);
-}
 
 /**
  * So sánh version "X.Y.Z" — return >0 nếu a > b, <0 nếu a < b, 0 nếu bằng.
@@ -112,6 +68,7 @@ static int version_cmp(const char *a, const char *b) {
 
 #define MAX_OTA_RESP 1024
 static char s_resp_buf[MAX_OTA_RESP];
+static bool s_usb_lost = false;
 static int s_resp_len = 0;
 
 static esp_err_t http_check_event(esp_http_client_event_t *evt) {
@@ -136,6 +93,7 @@ typedef struct {
     char   version[16];
     char   url[256];
     float  min_battery_v;
+    char   sha256[65];
 } ota_info_t;
 
 static bool ota_check_gas(const char *device_id, ota_info_t *info) {
@@ -175,17 +133,63 @@ static bool ota_check_gas(const char *device_id, ota_info_t *info) {
     json_get_string(s_resp_buf, "version", info->version, sizeof(info->version));
     json_get_string(s_resp_buf, "url", info->url, sizeof(info->url));
     info->min_battery_v = json_get_float(s_resp_buf, "min_battery_v", 3.5f);
+    json_get_string(s_resp_buf, "sha256", info->sha256, sizeof(info->sha256));
     return true;
 }
 
+// SHA256 verify state (shared between event handler and ota_perform)
+static mbedtls_sha256_context s_sha_ctx;
+static bool s_sha_active = false;
+
+static esp_err_t ota_download_event(esp_http_client_event_t *evt) {
+    if (evt->event_id == HTTP_EVENT_ON_DATA && s_sha_active) {
+        mbedtls_sha256_update_ret(&s_sha_ctx, evt->data, evt->data_len);
+    }
+    return ESP_OK;
+}
+
+static bool sha256_match(const char *expected_hex) {
+    if (!expected_hex || strlen(expected_hex) != 64) return true; // no SHA to verify
+    unsigned char hash[32] = {0};
+    mbedtls_sha256_finish_ret(&s_sha_ctx, hash);
+    s_sha_active = false;
+    mbedtls_sha256_free(&s_sha_ctx);
+
+    char hex[65];
+    for (int i = 0; i < 32; i++) {
+        sprintf(hex + i * 2, "%02x", hash[i]);
+    }
+    hex[64] = '\0';
+
+    bool match = (strcasecmp(hex, expected_hex) == 0);
+    if (!match) {
+        ESP_LOGE(TAG, "SHA256 mismatch: got=%s expected=%s", hex, expected_hex);
+    } else {
+        ESP_LOGI(TAG, "SHA256 verified OK");
+    }
+    return match;
+}
+
 static bool ota_perform(const ota_info_t *info) {
-    ESP_LOGI(TAG, "Starting OTA: version=%s url=%s", info->version, info->url);
+    ESP_LOGI(TAG, "Starting OTA: version=%s url=%s sha256=%s",
+             info->version, info->url,
+             info->sha256[0] ? "yes" : "no");
+
+    // Initialize SHA256 context if expected hash provided
+    bool verify_sha = (strlen(info->sha256) == 64);
+    s_sha_active = false;
+    if (verify_sha) {
+        mbedtls_sha256_init(&s_sha_ctx);
+        mbedtls_sha256_starts_ret(&s_sha_ctx, 0);
+        s_sha_active = true;
+    }
 
     esp_http_client_config_t http_cfg = {
         .url = info->url,
         .timeout_ms = OTA_DOWNLOAD_TIMEOUT_MS,
         .keep_alive_enable = true,
         .crt_bundle_attach = esp_crt_bundle_attach,
+        .event_handler = verify_sha ? ota_download_event : NULL,
     };
     esp_https_ota_config_t ota_cfg = {
         .http_config = &http_cfg,
@@ -229,6 +233,14 @@ static bool ota_perform(const ota_info_t *info) {
     if (esp_https_ota_is_complete_data_received(handle) != true) {
         ESP_LOGE(TAG, "Download incomplete");
         esp_https_ota_abort(handle);
+        if (s_sha_active) { mbedtls_sha256_free(&s_sha_ctx); s_sha_active = false; }
+        return false;
+    }
+
+    // Verify SHA256 trước khi commit OTA
+    if (verify_sha && !sha256_match(info->sha256)) {
+        ESP_LOGE(TAG, "SHA256 mismatch — aborting OTA");
+        esp_https_ota_abort(handle);
         return false;
     }
 
@@ -268,13 +280,32 @@ static void ota_task(void *arg) {
 
     ESP_LOGI(TAG, "OTA updater started for device %s", device_id);
 
+    // Subscribe event bus để theo dõi USB power state
+    QueueHandle_t ev_q = event_bus_subscribe("ota_updater");
+
     while (1) {
         ota_trigger_t trig;
-        // Đợi trigger hoặc timeout
-        if (xQueueReceive(s_trigger_q, &trig, pdMS_TO_TICKS(OTA_CHECK_INTERVAL_MS))
-            == pdFALSE) {
+        // Đợi trigger hoặc timeout, đồng thời drain power events
+        uint32_t wait_ms = OTA_CHECK_INTERVAL_MS;
+
+        while (1) {
+            pbox_event_msg_t ev_msg;
+            if (xQueueReceive(ev_q, &ev_msg, pdMS_TO_TICKS(wait_ms)) == pdTRUE) {
+                if (ev_msg.type == EV_POWER_USB_LOST) s_usb_lost = true;
+                else if (ev_msg.type == EV_POWER_USB_RESTORED) s_usb_lost = false;
+                wait_ms = 50;
+            } else {
+                break;
+            }
+        }
+
+        // Kiểm tra manual trigger queue
+        if (xQueueReceive(s_trigger_q, &trig, 0) == pdTRUE) {
+            // manual trigger
+        } else {
             trig = OTA_TRIGGER_PERIODIC;
         }
+
         ESP_LOGI(TAG, "OTA check (%s)",
                  trig == OTA_TRIGGER_MANUAL ? "manual" : "periodic");
 
@@ -291,9 +322,16 @@ static void ota_task(void *arg) {
 
         ESP_LOGI(TAG, "Update available: %s → %s", FW_VERSION, info.version);
 
-        // TODO: kiểm tra battery > info.min_battery_v trước khi OTA
-        // Đọc state battery_monitor qua event bus subscription
-        // Tạm skip — assume nguồn USB-C đang cấp khi OTA
+        // Kiểm tra battery > info.min_battery_v trước khi OTA
+        if (info.min_battery_v > 0.0f) {
+            float vbat = battery_read_voltage();
+            bool usb_present = !s_usb_lost;
+            if (vbat < info.min_battery_v && !usb_present) {
+                ESP_LOGW(TAG, "Battery %.2fV < %.2fV min and no USB, skipping OTA",
+                         vbat, info.min_battery_v);
+                continue;
+            }
+        }
 
         if (!ota_perform(&info)) {
             ESP_LOGE(TAG, "OTA failed");

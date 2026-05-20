@@ -47,7 +47,7 @@ typedef enum {
 
 typedef struct {
     pbox_event_t type;
-    uint32_t timestamp_ms;
+    int64_t timestamp_ms;
     union {
         float    fval;
         int32_t  ival;
@@ -55,7 +55,7 @@ typedef struct {
     } data;
 } pbox_event_msg_t;
 
-#define EVENT_BUS_QUEUE_LEN     16
+#define EVENT_BUS_QUEUE_LEN     32
 
 /**
  * Init event bus. Gọi 1 lần ở main.

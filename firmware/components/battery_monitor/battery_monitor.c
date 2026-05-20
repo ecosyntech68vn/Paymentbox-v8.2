@@ -19,6 +19,7 @@
 #include "event_bus.h"
 #include "paymentbox_config.h"
 #include "esp_log.h"
+#include "esp_idf_version.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
@@ -37,38 +38,61 @@ static int s_idx = 0;
 static bool s_low_sent = false;
 static bool s_critical_sent = false;
 static bool s_usb_lost_sent = false;
+static bool s_usb_lost_current = false;
 static float s_last_voltage = 0;
+static float s_current_avg = 0;
 
 static void adc_init(void) {
     adc_oneshot_unit_init_cfg_t unit_cfg = {
         .unit_id = ADC_UNIT_1,
         .ulp_mode = ADC_ULP_MODE_DISABLE,
     };
-    adc_oneshot_new_unit(&unit_cfg, &s_adc);
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &s_adc));
 
     adc_oneshot_chan_cfg_t ch_cfg = {
         .bitwidth = ADC_BITWIDTH_DEFAULT,
         .atten = ADC_ATTEN_DB_11,
     };
-    adc_oneshot_config_channel(s_adc, PIN_ADC_BAT, &ch_cfg);
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc, PIN_ADC_BAT, &ch_cfg));
 
-    // Calibration (line fitting nếu efuse có)
+    // Calibration (curve fitting) — dùng scheme mới cho ESP-IDF v5+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+    adc_cali_curve_fitting_config_t cali_cfg = {
+        .unit_id = ADC_UNIT_1,
+        .atten = ADC_ATTEN_DB_11,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_cfg, &s_cali));
+#else
     adc_cali_line_fitting_config_t cali_cfg = {
         .unit_id = ADC_UNIT_1,
         .atten = ADC_ATTEN_DB_11,
         .bitwidth = ADC_BITWIDTH_DEFAULT,
     };
-    adc_cali_create_scheme_line_fitting(&cali_cfg, &s_cali);
+    ESP_ERROR_CHECK(adc_cali_create_scheme_line_fitting(&cali_cfg, &s_cali));
+#endif
 }
+
+static float s_last_known_v = -1.0f;
 
 static float read_voltage(void) {
     int raw = 0;
-    adc_oneshot_read(s_adc, PIN_ADC_BAT, &raw);
+    esp_err_t err = adc_oneshot_read(s_adc, PIN_ADC_BAT, &raw);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "ADC read failed: %d, using last known value", err);
+        return s_last_known_v >= 0 ? s_last_known_v : 0;
+    }
 
     int mv = 0;
-    adc_cali_raw_to_voltage(s_cali, raw, &mv);
+    err = adc_cali_raw_to_voltage(s_cali, raw, &mv);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "ADC cali failed: %d, using last known value", err);
+        return s_last_known_v >= 0 ? s_last_known_v : 0;
+    }
     float v_adc = mv / 1000.0f;
-    return v_adc * BAT_DIVIDER_RATIO;
+    float v = v_adc * BAT_DIVIDER_RATIO;
+    s_last_known_v = v;
+    return v;
 }
 
 static float avg_history(void) {
@@ -104,18 +128,26 @@ static void check_thresholds(float v) {
         s_critical_sent = false;
     }
 
-    // USB lost detection: V_BAT giảm liên tục trong N samples
+    // USB lost detection: debounce 3/5 consecutive drops
+    static int drop_count = 0;
     if (s_last_voltage > 0 && v > 0) {
         float dv = v - s_last_voltage;
-        // Nếu giảm > 10mV mỗi 5s và đã có 3+ samples
-        if (dv < -0.01f && !s_usb_lost_sent && v < 4.0f) {
-            ESP_LOGW(TAG, "USB lost detected, dV=%.3f", dv);
+        if (dv < -0.01f && v < 4.0f) {
+            drop_count++;
+        } else if (dv > 0.05f) {
+            drop_count = 0;
+        }
+        if (drop_count >= 3 && !s_usb_lost_sent) {
+            ESP_LOGW(TAG, "USB lost detected (%d drops)", drop_count);
             event_bus_publish(EV_POWER_USB_LOST, NULL);
             s_usb_lost_sent = true;
+            s_usb_lost_current = true;
+            drop_count = 0;
         } else if (dv > 0.05f && s_usb_lost_sent) {
             ESP_LOGI(TAG, "USB restored");
             event_bus_publish(EV_POWER_USB_RESTORED, NULL);
             s_usb_lost_sent = false;
+            s_usb_lost_current = false;
         }
     }
     s_last_voltage = v;
@@ -136,13 +168,21 @@ static void battery_task(void *arg) {
         s_history[s_idx] = v;
         s_idx = (s_idx + 1) % HISTORY_LEN;
 
-        float avg = avg_history();
-        ESP_LOGI(TAG, "V_BAT=%.2fV (raw=%.2f avg=%.2f)", avg, v, avg);
+        s_current_avg = avg_history();
+        ESP_LOGI(TAG, "V_BAT=%.2fV (raw=%.2f avg=%.2f)", s_current_avg, v, s_current_avg);
 
-        check_thresholds(avg);
+        check_thresholds(s_current_avg);
 
         vTaskDelay(pdMS_TO_TICKS(SAMPLE_INTERVAL_MS));
     }
+}
+
+float battery_read_voltage(void) {
+    return s_current_avg;
+}
+
+bool battery_usb_present(void) {
+    return !s_usb_lost_current;
 }
 
 void battery_monitor_start(void) {

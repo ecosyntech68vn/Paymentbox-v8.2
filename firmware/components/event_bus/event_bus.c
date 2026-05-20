@@ -5,7 +5,7 @@
 
 static const char *TAG = "event_bus";
 
-#define MAX_SUBSCRIBERS 8
+#define MAX_SUBSCRIBERS 16
 
 static QueueHandle_t s_subs[MAX_SUBSCRIBERS] = { NULL };
 static const char *s_sub_names[MAX_SUBSCRIBERS] = { NULL };
@@ -37,7 +37,7 @@ bool event_bus_publish(pbox_event_t type, const pbox_event_msg_t *data) {
     pbox_event_msg_t msg = { 0 };
     if (data) msg = *data;
     msg.type = type;
-    msg.timestamp_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    msg.timestamp_ms = esp_timer_get_time() / 1000;
 
     int dropped = 0;
     xSemaphoreTake(s_lock, portMAX_DELAY);

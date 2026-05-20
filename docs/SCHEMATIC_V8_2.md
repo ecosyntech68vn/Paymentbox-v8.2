@@ -105,11 +105,10 @@ BAT+ ──► U7 MT3608 SOT-23-6
                   → D7 anode (SS14 Schottky)
                   → +5V_SYS
     Pin 2 GND   → GND
-    Pin 3 FB    → R17 (15kΩ to +5V_SYS) / R18 (3.3kΩ to GND) [V_OUT = 0.6 * (R17+R18)/R18 = 0.6 * 18.3/3.3 = 3.33V... wait]
+    Pin 3 FB    → R17 (22kΩ to +5V_SYS) / R18 (3kΩ to GND) [V_OUT = 0.6 * (1 + R17/R18) = 0.6 * (1 + 22/3) = 5.0V]
 
-Recalculate: V_OUT = V_FB * (1 + R17/R18) where V_FB = 0.6V for MT3608
-→ For V_OUT = 5V: R17/R18 = 5/0.6 - 1 = 7.33
-→ R17 = 22kΩ, R18 = 3kΩ → ratio = 7.33 ✓ → V_OUT = 5.0V
+Công thức MT3608: V_OUT = V_FB * (1 + R17/R18) với V_FB = 0.6V
+→ V_OUT = 0.6 * (1 + 22/3) = 0.6 * 8.33 = 5.0V ✓
 
     Pin 4 EN    → +5V_SAFE (always on khi có battery OR USB-C, but only enable boost when battery is sole source — actually keep always on, MT3608 internal load shed handles it)
     Pin 5 NC

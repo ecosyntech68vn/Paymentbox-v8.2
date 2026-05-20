@@ -10,6 +10,14 @@ managed_components/
 *.bin
 *.elf
 
+# KiCad temp / auto-save
+*.kicad_pcb-bak
+fp-info-cache
+*.net
+*.kicad_dump
+autosave/
+_autosave-*
+
 # Python
 __pycache__/
 *.pyc

@@ -8,7 +8,7 @@
  * 1. HTTPS GET tới GAS endpoint với version hiện tại
  * 2. Nếu GAS trả về update_available=true và version mới → download
  * 3. esp_https_ota stream firmware → partition OTA rỗng
- * 4. Verify SHA256 (TODO: signature qua ATECC608B)
+ * 4. Verify SHA256 (nếu GAS trả sha256 hex string; fallback nếu không có)
  * 5. esp_ota_set_boot_partition → restart
  *
  * Sau boot firmware mới:

@@ -13,12 +13,15 @@
  * health check local (NotificationListener treo, push xuống GAS không tới).
  */
 #include "gas_poller.h"
+#include "json_utils.h"
 #include "event_bus.h"
 #include "paymentbox_config.h"
 #include "esp_log.h"
 #include "esp_http_client.h"
+#include "esp_crt_bundle.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_system.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,14 +56,9 @@ static esp_err_t http_event(esp_http_client_event_t *evt) {
 /**
  * Parse age (giây) từ JSON response GAS. Format đề xuất:
  * {"ok":true,"last_heartbeat_ms":1234567890,"age_s":45}
- * TODO: dùng cJSON parser nếu format phức tạp; hiện tại scan đơn giản.
  */
 static int parse_age_seconds(const char *json) {
-    const char *p = strstr(json, "\"age_s\"");
-    if (!p) return -1;
-    p = strchr(p, ':');
-    if (!p) return -1;
-    return atoi(p + 1);
+    return json_get_int(json, "age_s", -1);
 }
 
 static void gas_poller_task(void *arg) {
@@ -77,6 +75,8 @@ static void gas_poller_task(void *arg) {
             .url = url,
             .timeout_ms = GAS_TIMEOUT_MS,
             .event_handler = http_event,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .keep_alive_enable = true,
         };
         esp_http_client_handle_t client = esp_http_client_init(&config);
 
@@ -103,7 +103,11 @@ static void gas_poller_task(void *arg) {
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(GAS_POLL_INTERVAL_MS));
+        // Jitter ±10s để tránh thundering herd
+        int jitter = (int)(esp_random() % 20001) - 10000;
+        int delay_ms = GAS_POLL_INTERVAL_MS + jitter;
+        if (delay_ms < 10000) delay_ms = 10000;
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
 }
 

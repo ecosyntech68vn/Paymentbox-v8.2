@@ -18,6 +18,7 @@
 #include "esp_http_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_system.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -46,6 +47,8 @@ static bool ping_phone(void) {
         .url = url,
         .timeout_ms = PHONE_TIMEOUT_MS,
         .event_handler = http_event_handler,
+        .max_http_response_header_size = 512,
+        .keep_alive_enable = true,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     if (!client) return false;
@@ -88,7 +91,11 @@ static void phone_poller_task(void *arg) {
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(PHONE_POLL_INTERVAL_MS));
+        // Jitter ±5s để tránh thundering herd
+        int jitter = (int)(esp_random() % 10001) - 5000;
+        int delay_ms = PHONE_POLL_INTERVAL_MS + jitter;
+        if (delay_ms < 5000) delay_ms = 5000;
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
 }
 

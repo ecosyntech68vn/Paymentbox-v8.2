@@ -186,13 +186,39 @@ test('parseTimestamp null/undefined → 0', () => {
   eq(G._parseTimestamp_(''), 0);
 });
 
+// =============== TESTS: deviceRolloutHash ===============
+
+console.log('\n=== _deviceRolloutHash_ ===');
+
+test('rolloutHash deterministic (same input → same output)', () => {
+  const h1 = G._deviceRolloutHash_('ESG-PB-A4B7C9D2');
+  const h2 = G._deviceRolloutHash_('ESG-PB-A4B7C9D2');
+  eq(h1, h2);
+});
+
+test('rolloutHash different device → different hash', () => {
+  const h1 = G._deviceRolloutHash_('ESG-PB-A4B7C9D2');
+  const h2 = G._deviceRolloutHash_('ESG-PB-FFFFFFFF');
+  truthy(h1 !== h2, 'different devices should have different hashes');
+});
+
+test('rolloutHash returns 0-99', () => {
+  for (var i = 0; i < 100; i++) {
+    var id = 'ESG-PB-TEST' + String(i).padStart(4, '0');
+    var h = G._deviceRolloutHash_(id);
+    truthy(h >= 0 && h <= 99, 'hash ' + h + ' out of range for ' + id);
+  }
+});
+
 // =============== TESTS: findFirmwareMatch ===============
+
+console.log('\n=== _findFirmwareMatch_ ===');
 
 console.log('\n=== _findFirmwareMatch_ ===');
 
 test('findFirmwareMatch — exact pattern + newer version', () => {
   const rows = [
-    ['ESG-PB-A4B7C9D2', 'V8.2', '1.1.0', 'https://example.com/fw.bin', 'sha256abc', 3.5, 'Bug fix'],
+    ['ESG-PB-A4B7C9D2', 'V8.2', '1.1.0', 'https://example.com/fw.bin', 'sha256abc', 3.5, 100, 'Bug fix'],
   ];
   const m = G._findFirmwareMatch_(rows, 'ESG-PB-A4B7C9D2', 'V8.2', '1.0.0');
   truthy(m);
@@ -204,7 +230,7 @@ test('findFirmwareMatch — exact pattern + newer version', () => {
 
 test('findFirmwareMatch — wildcard pattern', () => {
   const rows = [
-    ['ESG-PB-*', 'V8.2', '1.2.0', 'https://example.com/fw.bin', '', 3.5, 'Wildcard'],
+    ['ESG-PB-*', 'V8.2', '1.2.0', 'https://example.com/fw.bin', '', 3.5, 100, 'Wildcard'],
   ];
   const m = G._findFirmwareMatch_(rows, 'ESG-PB-A4B7C9D2', 'V8.2', '1.0.0');
   truthy(m);
@@ -213,7 +239,7 @@ test('findFirmwareMatch — wildcard pattern', () => {
 
 test('findFirmwareMatch — same version → no update', () => {
   const rows = [
-    ['ESG-PB-*', 'V8.2', '1.0.0', 'https://example.com/fw.bin', '', 3.5, ''],
+    ['ESG-PB-*', 'V8.2', '1.0.0', 'https://example.com/fw.bin', '', 3.5, 100, ''],
   ];
   const m = G._findFirmwareMatch_(rows, 'ESG-PB-X', 'V8.2', '1.0.0');
   falsy(m, 'same version should not match');
@@ -221,7 +247,7 @@ test('findFirmwareMatch — same version → no update', () => {
 
 test('findFirmwareMatch — older version → no update (anti-downgrade)', () => {
   const rows = [
-    ['ESG-PB-*', 'V8.2', '0.9.0', 'https://example.com/fw.bin', '', 3.5, ''],
+    ['ESG-PB-*', 'V8.2', '0.9.0', 'https://example.com/fw.bin', '', 3.5, 100, ''],
   ];
   const m = G._findFirmwareMatch_(rows, 'ESG-PB-X', 'V8.2', '1.0.0');
   falsy(m);
@@ -229,7 +255,7 @@ test('findFirmwareMatch — older version → no update (anti-downgrade)', () =>
 
 test('findFirmwareMatch — hw mismatch', () => {
   const rows = [
-    ['ESG-PB-*', 'V9.0', '1.1.0', 'https://example.com/fw.bin', '', 3.5, ''],
+    ['ESG-PB-*', 'V9.0', '1.1.0', 'https://example.com/fw.bin', '', 3.5, 100, ''],
   ];
   const m = G._findFirmwareMatch_(rows, 'ESG-PB-X', 'V8.2', '1.0.0');
   falsy(m);
@@ -237,7 +263,7 @@ test('findFirmwareMatch — hw mismatch', () => {
 
 test('findFirmwareMatch — empty url skipped', () => {
   const rows = [
-    ['ESG-PB-*', 'V8.2', '1.1.0', '', '', 3.5, ''],
+    ['ESG-PB-*', 'V8.2', '1.1.0', '', '', 3.5, 100, ''],
   ];
   const m = G._findFirmwareMatch_(rows, 'ESG-PB-X', 'V8.2', '1.0.0');
   falsy(m, 'empty url should be skipped');
@@ -245,21 +271,21 @@ test('findFirmwareMatch — empty url skipped', () => {
 
 test('findFirmwareMatch — invalid version format skipped', () => {
   const rows = [
-    ['ESG-PB-*', 'V8.2', 'bad-version', 'https://example.com/fw.bin', '', 3.5, ''],
+    ['ESG-PB-*', 'V8.2', 'bad-version', 'https://example.com/fw.bin', '', 3.5, 100, ''],
   ];
   const m = G._findFirmwareMatch_(rows, 'ESG-PB-X', 'V8.2', '1.0.0');
   falsy(m);
 });
 
-test('findFirmwareMatch — first match wins', () => {
+test('findFirmwareMatch — specific pattern beats wildcard', () => {
   const rows = [
-    ['ESG-PB-*',         'V8.2', '1.1.0', 'https://a.com/fw.bin', '', 3.5, 'first'],
-    ['ESG-PB-A4B7C9D2', 'V8.2', '1.2.0', 'https://b.com/fw.bin', '', 3.5, 'second'],
+    ['ESG-PB-*',         'V8.2', '1.1.0', 'https://a.com/fw.bin', '', 3.5, 100, 'wildcard'],
+    ['ESG-PB-A4B7C9D2', 'V8.2', '1.2.0', 'https://b.com/fw.bin', '', 3.5, 100, 'specific'],
   ];
   const m = G._findFirmwareMatch_(rows, 'ESG-PB-A4B7C9D2', 'V8.2', '1.0.0');
   truthy(m);
-  eq(m.new_version, '1.1.0', 'first row wins');
-  eq(m.release_notes, 'first');
+  eq(m.new_version, '1.2.0', 'specific pattern should win');
+  eq(m.release_notes, 'specific');
 });
 
 test('findFirmwareMatch — empty rows', () => {
@@ -269,11 +295,35 @@ test('findFirmwareMatch — empty rows', () => {
 
 test('findFirmwareMatch — min_battery_v defaults to 3.5 when missing', () => {
   const rows = [
-    ['ESG-PB-*', 'V8.2', '1.1.0', 'https://example.com/fw.bin', '', '', ''],
+    ['ESG-PB-*', 'V8.2', '1.1.0', 'https://example.com/fw.bin', '', '', '', ''],
   ];
   const m = G._findFirmwareMatch_(rows, 'ESG-PB-X', 'V8.2', '1.0.0');
   truthy(m);
   eq(m.min_battery_v, 3.5);
+});
+
+test('findFirmwareMatch — rollout 0% excludes all devices', () => {
+  const rows = [
+    ['ESG-PB-*', 'V8.2', '1.1.0', 'https://example.com/fw.bin', '', 3.5, 0, 'Disabled rollout'],
+  ];
+  const m = G._findFirmwareMatch_(rows, 'ESG-PB-A4B7C9D2', 'V8.2', '1.0.0');
+  falsy(m, 'rollout 0% should exclude all devices');
+});
+
+test('findFirmwareMatch — rollout 100% includes all devices', () => {
+  const rows = [
+    ['ESG-PB-*', 'V8.2', '1.1.0', 'https://example.com/fw.bin', '', 3.5, 100, 'Full rollout'],
+  ];
+  const m = G._findFirmwareMatch_(rows, 'ESG-PB-A4B7C9D2', 'V8.2', '1.0.0');
+  truthy(m, 'rollout 100% should include all devices');
+});
+
+test('findFirmwareMatch — rollout empty treated as 100%', () => {
+  const rows = [
+    ['ESG-PB-*', 'V8.2', '1.1.0', 'https://example.com/fw.bin', '', 3.5, '', 'No rollout column'],
+  ];
+  const m = G._findFirmwareMatch_(rows, 'ESG-PB-A4B7C9D2', 'V8.2', '1.0.0');
+  truthy(m, 'empty rollout should default to 100%');
 });
 
 // =============== TESTS: handleGetHeartbeat_ ===============
@@ -366,8 +416,8 @@ test('otaCheck — no firmware sheet', () => {
 test('otaCheck — update available', () => {
   mockSheets = {
     Firmware: [
-      ['device_pattern', 'hw', 'new_version', 'url', 'sha256', 'min_battery_v', 'release_notes'],
-      ['ESG-PB-*', 'V8.2', '1.1.0', 'https://drive.google.com/fw.bin', 'abc123', 3.5, 'Fix LED'],
+      ['device_pattern', 'hw', 'new_version', 'url', 'sha256', 'min_battery_v', 'rollout_percent', 'release_notes'],
+      ['ESG-PB-*', 'V8.2', '1.1.0', 'https://drive.google.com/fw.bin', 'abc123', 3.5, 100, 'Fix LED'],
     ],
   };
   const r = parseResp(G.handleOtaCheck_({ parameter: { device_id: 'ESG-PB-A4B7C9D2', version: '1.0.0', hw: 'V8.2' } }));
@@ -382,8 +432,8 @@ test('otaCheck — update available', () => {
 test('otaCheck — no update (current = latest)', () => {
   mockSheets = {
     Firmware: [
-      ['device_pattern', 'hw', 'new_version', 'url', 'sha256', 'min_battery_v', 'release_notes'],
-      ['ESG-PB-*', 'V8.2', '1.0.0', 'https://drive.google.com/fw.bin', '', 3.5, ''],
+      ['device_pattern', 'hw', 'new_version', 'url', 'sha256', 'min_battery_v', 'rollout_percent', 'release_notes'],
+      ['ESG-PB-*', 'V8.2', '1.0.0', 'https://drive.google.com/fw.bin', '', 3.5, '', ''],
     ],
   };
   const r = parseResp(G.handleOtaCheck_({ parameter: { device_id: 'ESG-PB-A4B7C9D2', version: '1.0.0', hw: 'V8.2' } }));
@@ -393,9 +443,9 @@ test('otaCheck — no update (current = latest)', () => {
 test('otaCheck — full integration with real-world data', () => {
   mockSheets = {
     Firmware: [
-      ['device_pattern', 'hw', 'new_version', 'url', 'sha256', 'min_battery_v', 'release_notes'],
-      ['ESG-PB-A4B7C9D2', 'V8.2', '1.2.0', 'https://drive.google.com/uc?id=ABC', 'def456', 3.6, 'Specific device fix'],
-      ['ESG-PB-*',         'V8.2', '1.1.0', 'https://drive.google.com/uc?id=XYZ', 'abc123', 3.5, 'General update'],
+      ['device_pattern', 'hw', 'new_version', 'url', 'sha256', 'min_battery_v', 'rollout_percent', 'release_notes'],
+      ['ESG-PB-A4B7C9D2', 'V8.2', '1.2.0', 'https://drive.google.com/uc?id=ABC', 'def456', 3.6, 100, 'Specific device fix'],
+      ['ESG-PB-*',         'V8.2', '1.1.0', 'https://drive.google.com/uc?id=XYZ', 'abc123', 3.5, 100, 'General update'],
     ],
   };
   // First-row match wins → specific device update

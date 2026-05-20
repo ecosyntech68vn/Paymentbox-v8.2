@@ -1,5 +1,7 @@
 # EcoSynTech PaymentBox V8.2 — Partition table với OTA support
 # 4MB flash ESP32-WROOM-32
+# WARNING: Firmware size must stay under 900KB per OTA partition (1MB - overhead).
+# If firmware exceeds 900KB, increase OTA partition size by reducing storage.
 # Name,    Type, SubType, Offset,   Size,    Flags
 nvs,      data, nvs,     0x9000,   0x6000,
 phy_init, data, phy,     0xf000,   0x1000,

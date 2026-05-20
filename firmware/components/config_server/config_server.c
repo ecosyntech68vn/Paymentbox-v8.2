@@ -45,7 +45,9 @@ static const char *FORM_HTML =
 ".status{padding:12px;background:#E5F0FF;border-radius:6px;margin-bottom:16px;font-size:14px}"
 "</style></head><body>"
 "<h1>EcoSynTech PaymentBox V8.2</h1>"
-"<div class='status'>Thiết bị: <b id='did'>...</b><br>Trạng thái: <b>Đang chờ cấu hình</b></div>"
+"<div class='status'>Thiết bị: <b id='did'>...</b><br>"
+"Mật khẩu AP: <b>" WIFI_AP_PASSWORD "</b><br>"
+"Trạng thái: <b>Đang chờ cấu hình</b></div>"
 "<form action='/save' method='POST'>"
 "<label>Tên WiFi (SSID)</label>"
 "<input name='ssid' required maxlength='32' placeholder='VD: ECO_HOME_5G'>"
@@ -214,7 +216,7 @@ static esp_err_t save_post_handler(httpd_req_t *req) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing SSID");
         return ESP_FAIL;
     }
-    if (!valid_ipv4(phone_ip)) {
+    if (strlen(phone_ip) < 7 || !valid_ipv4(phone_ip)) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid phone IP");
         return ESP_FAIL;
     }
