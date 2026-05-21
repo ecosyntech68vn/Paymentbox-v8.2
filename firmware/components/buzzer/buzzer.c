@@ -19,6 +19,11 @@
 
 static const char *TAG = "buzzer";
 
+static bool buzzer_event_filter(pbox_event_t t) {
+    return t == EV_TX_NEW || t == EV_PHONE_DEAD || t == EV_SYSTEM_CRITICAL
+        || t == EV_BAT_RECOVERED || t == EV_PHONE_RECOVERED;
+}
+
 typedef enum {
     BZ_OFF = 0,
     BZ_TX_NEW,
@@ -68,7 +73,7 @@ static void play_pattern(buzzer_pattern_t p) {
 }
 
 static void buzzer_task(void *arg) {
-    QueueHandle_t q = event_bus_subscribe("buzzer");
+    QueueHandle_t q = event_bus_subscribe_filtered("buzzer", buzzer_event_filter);
     s_pattern_q = xQueueCreate(4, sizeof(buzzer_pattern_t));
     buzzer_gpio_init();
 

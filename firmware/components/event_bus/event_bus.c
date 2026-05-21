@@ -9,6 +9,7 @@ static const char *TAG = "event_bus";
 
 static QueueHandle_t s_subs[MAX_SUBSCRIBERS] = { NULL };
 static const char *s_sub_names[MAX_SUBSCRIBERS] = { NULL };
+static event_filter_fn s_filters[MAX_SUBSCRIBERS] = { NULL };
 static int s_sub_count = 0;
 static SemaphoreHandle_t s_lock = NULL;
 
@@ -17,7 +18,7 @@ void event_bus_init(void) {
     ESP_LOGI(TAG, "Event bus initialized");
 }
 
-QueueHandle_t event_bus_subscribe(const char *name) {
+static QueueHandle_t subscribe(const char *name, event_filter_fn filter) {
     xSemaphoreTake(s_lock, portMAX_DELAY);
     if (s_sub_count >= MAX_SUBSCRIBERS) {
         ESP_LOGE(TAG, "Max subscribers exceeded");
@@ -27,10 +28,20 @@ QueueHandle_t event_bus_subscribe(const char *name) {
     QueueHandle_t q = xQueueCreate(EVENT_BUS_QUEUE_LEN, sizeof(pbox_event_msg_t));
     s_subs[s_sub_count] = q;
     s_sub_names[s_sub_count] = name;
+    s_filters[s_sub_count] = filter;
     s_sub_count++;
-    ESP_LOGI(TAG, "Subscriber '%s' added (total: %d)", name, s_sub_count);
+    ESP_LOGI(TAG, "Subscriber '%s' added (total: %d)%s", name, s_sub_count,
+             filter ? " [filtered]" : "");
     xSemaphoreGive(s_lock);
     return q;
+}
+
+QueueHandle_t event_bus_subscribe(const char *name) {
+    return subscribe(name, NULL);
+}
+
+QueueHandle_t event_bus_subscribe_filtered(const char *name, event_filter_fn filter) {
+    return subscribe(name, filter);
 }
 
 bool event_bus_publish(pbox_event_t type, const pbox_event_msg_t *data) {
@@ -42,8 +53,9 @@ bool event_bus_publish(pbox_event_t type, const pbox_event_msg_t *data) {
     int dropped = 0;
     xSemaphoreTake(s_lock, portMAX_DELAY);
     for (int i = 0; i < s_sub_count; i++) {
+        if (s_filters[i] && !s_filters[i](type)) continue;
         if (xQueueSend(s_subs[i], &msg, 0) != pdTRUE) {
-            ESP_LOGW(TAG, "Queue full for '%s', event %d dropped", s_sub_names[i], type);
+            ESP_LOGW(TAG, "Queue full for '%s', event %s dropped", s_sub_names[i], event_name(type));
             dropped++;
         }
     }

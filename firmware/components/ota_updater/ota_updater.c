@@ -137,6 +137,10 @@ static bool ota_check_gas(const char *device_id, ota_info_t *info) {
     return true;
 }
 
+static bool ota_event_filter(pbox_event_t t) {
+    return t == EV_POWER_USB_LOST || t == EV_POWER_USB_RESTORED;
+}
+
 // SHA256 verify state (shared between event handler and ota_perform)
 static mbedtls_sha256_context s_sha_ctx;
 static bool s_sha_active = false;
@@ -281,7 +285,7 @@ static void ota_task(void *arg) {
     ESP_LOGI(TAG, "OTA updater started for device %s", device_id);
 
     // Subscribe event bus để theo dõi USB power state
-    QueueHandle_t ev_q = event_bus_subscribe("ota_updater");
+    QueueHandle_t ev_q = event_bus_subscribe_filtered("ota_updater", ota_event_filter);
 
     while (1) {
         ota_trigger_t trig;

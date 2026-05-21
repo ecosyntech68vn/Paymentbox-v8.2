@@ -22,6 +22,14 @@
 
 static const char *TAG = "led_status";
 
+static bool led_event_filter(pbox_event_t t) {
+    return t == EV_PHONE_HEALTHY || t == EV_PHONE_TIMEOUT || t == EV_PHONE_DEAD || t == EV_PHONE_RECOVERED
+        || t == EV_GAS_HEARTBEAT_OK || t == EV_GAS_STALE || t == EV_GAS_UNREACHABLE
+        || t == EV_BAT_CRITICAL || t == EV_BAT_RECOVERED
+        || t == EV_POWER_USB_LOST || t == EV_POWER_USB_RESTORED
+        || t == EV_WIFI_CONNECTED || t == EV_WIFI_DISCONNECTED;
+}
+
 typedef enum {
     ST_IDLE = 0,
     ST_OK,
@@ -87,20 +95,22 @@ static void led_set(uint8_t r, uint8_t g, uint8_t b) {
     ledc_update_duty(LEDC_MODE, LEDC_CH_B);
 }
 
-// Sub-system states
-static struct {
+// Sub-system states — mỗi subsystem 1 trạng thái riêng, tổ hợp thành system state
+typedef struct {
     bool phone_ok;
     bool gas_ok;
     bool bat_critical;
     bool usb_lost;
     bool wifi_ok;
-} s_sys = { 0 };
+} subsys_t;
 
-static pbox_state_t compute_state(void) {
-    if (!s_sys.wifi_ok) return ST_IDLE;
-    if (s_sys.bat_critical || (s_sys.usb_lost && !s_sys.phone_ok)) return ST_CRITICAL;
-    if (!s_sys.phone_ok || !s_sys.gas_ok) return ST_ALERT;
-    if (s_sys.usb_lost) return ST_WARN;
+static subsys_t s_sys = { false, false, false, false, false };
+
+static pbox_state_t compute_state(const subsys_t *sys) {
+    if (!sys->wifi_ok) return ST_IDLE;
+    if (sys->bat_critical || (sys->usb_lost && !sys->phone_ok)) return ST_CRITICAL;
+    if (!sys->phone_ok || !sys->gas_ok) return ST_ALERT;
+    if (sys->usb_lost) return ST_WARN;
     return ST_OK;
 }
 
@@ -122,8 +132,15 @@ static void handle_event(pbox_event_t ev) {
     }
 }
 
+static void on_state_enter(pbox_state_t old_state, pbox_state_t new_state) {
+    ESP_LOGI(TAG, "State: %s → %s", state_name(old_state), state_name(new_state));
+    if (new_state == ST_ALERT)    event_bus_publish(EV_SYSTEM_ALERT, NULL);
+    if (new_state == ST_CRITICAL) event_bus_publish(EV_SYSTEM_CRITICAL, NULL);
+    if (new_state == ST_OK)       event_bus_publish(EV_SYSTEM_BOOT, NULL);  // re-notify boot as healthy
+}
+
 static void led_status_task(void *arg) {
-    QueueHandle_t q = event_bus_subscribe("led_status");
+    QueueHandle_t q = event_bus_subscribe_filtered("led_status", led_event_filter);
     led_setup();
 
     pbox_state_t current = ST_IDLE;
@@ -136,13 +153,10 @@ static void led_status_task(void *arg) {
             handle_event(msg.type);
         }
 
-        pbox_state_t next = compute_state();
+        pbox_state_t next = compute_state(&s_sys);
         if (next != current) {
-            ESP_LOGI(TAG, "State: %s → %s", state_name(current), state_name(next));
+            on_state_enter(current, next);
             current = next;
-            // Notify orchestrator of high-level state change
-            if (current == ST_ALERT)    event_bus_publish(EV_SYSTEM_ALERT, NULL);
-            if (current == ST_CRITICAL) event_bus_publish(EV_SYSTEM_CRITICAL, NULL);
         }
 
         // Render LED based on state (100ms tick)

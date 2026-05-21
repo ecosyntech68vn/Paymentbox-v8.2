@@ -32,10 +32,17 @@
 #if ENABLE_OTA
 #include "ota_updater.h"
 #endif
+#if ENABLE_TELEGRAM_ALERT
+#include "telegram_alert.h"
+#endif
 
 static const char *TAG = "main";
 
 static char s_device_id[DEVICE_ID_LEN + 1];
+
+static bool main_event_filter(pbox_event_t t) {
+    return t == EV_BAT_CRITICAL || t == EV_POWER_USB_LOST || t == EV_POWER_USB_RESTORED;
+}
 
 static void compute_device_id(void) {
     uint8_t mac[6];
@@ -104,7 +111,8 @@ void app_main(void) {
     wifi_manager_start();
 
     // Đợi WiFi event-driven (không busy-poll)
-    QueueHandle_t sys_q = event_bus_subscribe("main");
+    // main task chỉ cần power events (deep sleep khi bat critical)
+    QueueHandle_t sys_q = event_bus_subscribe_filtered("main", main_event_filter);
     bool wifi_ok = false;
     int wait_ms = 0;
     while (!wifi_ok && wait_ms < WIFI_CONNECT_TIMEOUT_MS) {
@@ -132,6 +140,9 @@ void app_main(void) {
 #if ENABLE_OTA
         ota_updater_start();
         xTaskCreate(boot_sanity_task, "boot_san", 2048, NULL, PRIO_LOW, NULL);
+#endif
+#if ENABLE_TELEGRAM_ALERT
+        telegram_alert_start();
 #endif
     } else {
         ESP_LOGW(TAG, "WiFi không sẵn sàng — running offline mode (LCD/LED/buzzer only)");

@@ -15,4 +15,5 @@ idf_component_register(
         sd_logger
         config_server
         ota_updater
+        telegram_alert
 )

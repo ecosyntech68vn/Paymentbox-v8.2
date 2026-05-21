@@ -79,6 +79,10 @@
 #define GAS_POLL_INTERVAL_MS   60000           // 60s
 #define GAS_TIMEOUT_MS         10000
 
+// Telegram alert (optional — cần set token + chat_id trước khi dùng)
+#define TELEGRAM_BOT_TOKEN      ""                // Bot token từ @BotFather — set trong NVS key "tg.token" nếu có
+#define TELEGRAM_CHAT_ID        ""                // Chat ID để nhận alert — set trong NVS key "tg.chat_id"
+
 // OTA update
 #define OTA_CHECK_INTERVAL_MS  (24 * 3600 * 1000)   // 24h
 #define OTA_CHECK_TIMEOUT_MS   15000
@@ -134,3 +138,4 @@
 #define ENABLE_BATTERY_MONITOR 1
 #define ENABLE_CONFIG_SERVER   1   // HTTP server cho AP mode setup
 #define ENABLE_OTA             1   // OTA firmware update qua GAS
+#define ENABLE_TELEGRAM_ALERT  0   // Bật Telegram alert khi GAS down / bat critical
